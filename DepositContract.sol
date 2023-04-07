@@ -2,57 +2,31 @@
 
 pragma solidity >= 0.8.0;
 
+import "./DepositStorage.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 
-contract DepositContract is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
-    struct DepositInfo {
-        address user;
-        uint256 updateTime;
-        uint256 depositAmount;
-        uint256 ratePerSec; //decimal is 18
-        bool isUsed;
-    }
-
-    struct UnstakeInfo {
-        uint256 timestamp;
-        uint256 amount;
-        bool isUsed;
-    }
+contract DepositContract is DepositStorage, ReentrancyGuardUpgradeable {
 
     event Deposit( address user, uint256 amount, uint256 rate, uint256 depositTime);
     event Unstaked(address user, uint256 amount, uint256 leftAmount);
-    event Withdraw(address user, uint256 amount, uint256 leftAmount);
+    event Withdraw(address indexed user, uint256 amount, uint256 leftAmount);
     event GetReward(address user, uint256 amount, uint256 updateTime);
     event NewDepositRate(uint256 oldRate, uint256 newRate);
 
-    mapping(address => uint256) public rewards;
-    mapping(address => uint256) public deposits;
-    mapping(address => DepositInfo) public rateinfo;
-    mapping(address => UnstakeInfo[]) public unstakeInfo; // user -> unstakeInfo 
-    mapping(address => uint256) public unstakeClaimed; // user -> amount
-
-    uint256 public totalDeposit;
-    uint256 public totalWithdraw;
-    uint256 public totalReward;
-    uint256 public rate;
-
-    /// @notice initialize only run once
-    function initialize () public initializer {
-      __Ownable_init();
-      __UUPSUpgradeable_init();
-      rate = 20000;
+    constructor () {
+        admin = msg.sender;
     }
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() initializer {}
+    receive() external payable {}
 
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    function upgrade(address newImplementation) external {
+        require(msg.sender == admin, "only admin authorized");
+        implementation = newImplementation;
+    }
 
-    function _setDepositRate(uint256 ratio) external onlyOwner {
+    function _setDepositRate(uint256 ratio) external {
+        require(msg.sender == admin, "only admin authorized");
         uint256 oldRate = rate;
         rate = ratio;
         emit NewDepositRate(oldRate, rate);
@@ -69,6 +43,35 @@ contract DepositContract is Initializable, UUPSUpgradeable, OwnableUpgradeable, 
             return rewards[msg.sender] + reward;
         }else
             return rewards[msg.sender];
+    }
+
+    function unstakeRecordSize(address account) public view returns (uint256) {
+        UnstakeInfo[] memory infos = unstakeInfo[account];
+        return infos.length;
+    }
+
+    function unstakeRecords(address account) public view returns (UnstakeInfo[] memory) {
+        UnstakeInfo[] memory infos = unstakeInfo[account];
+        return infos;
+    }
+
+    function totalUnstakedAmount(address account) public view returns (uint256) {
+        UnstakeInfo[] memory infos = unstakeInfo[account];
+        uint256 amount = 0;
+        for(uint i=0; i<infos.length; i++)
+            amount += infos[i].amount;
+        return amount;
+    }
+
+    function totalUnstakeReleasedAmount(address account) public view returns (uint256) {
+        UnstakeInfo[] memory infos = unstakeInfo[account];
+        uint256 amount = 0;
+        for(uint i=0; i<infos.length; i++)
+        {
+            if((block.timestamp - infos[i].timestamp) > 21 * 86400)
+                amount += infos[i].amount;
+        }
+        return amount;
     }
 
     function deposit() public payable {
@@ -116,41 +119,44 @@ contract DepositContract is Initializable, UUPSUpgradeable, OwnableUpgradeable, 
         emit GetReward(msg.sender, amount, block.timestamp);
     }
 
-    function withdraw(uint256 amount) public nonReentrant{
+    // get claimable dynamic principal 
+    function getDynamicPrincipal(address account) public view returns(uint256) {
         uint256 leftAmount = 0;
-        for(uint i=0; i<unstakeInfo[msg.sender].length; i++)
+        for(uint i=0; i<unstakeInfo[account].length; i++)
         {
-            UnstakeInfo memory info = unstakeInfo[msg.sender][i];
-            if((block.timestamp - info.timestamp) >= 21 * 86400) 
+            UnstakeInfo memory info = unstakeInfo[account][i];
+            if(info.isClaimed == false) 
                 leftAmount += info.amount;
-            else
-                leftAmount += info.amount * ((block.timestamp - info.timestamp) / 86400 + 1) / 21;
         }
-        leftAmount -= unstakeClaimed[msg.sender];
-        require(leftAmount >= amount, "insuficient principal");
-        unstakeClaimed[msg.sender] += amount;
-        Address.sendValue(payable(msg.sender), amount);
-        emit Withdraw(msg.sender, amount, leftAmount-amount);
+        return leftAmount;
     }
 
     function unstake(uint256 amount) public nonReentrant{
         DepositInfo storage info = rateinfo[msg.sender];
         require(info.isUsed == true, "no more deposit reward");
-        require(info.depositAmount != 0, "already withdrawn");
-        require(info.depositAmount >= amount, "not enough to withdraw");
+        require(amount > 0 && info.depositAmount >= amount, "not enough to withdraw");
 
         uint256 earned = earn(msg.sender);
         rewards[msg.sender] = earned;
 
         info.updateTime = block.timestamp;
         info.depositAmount -= amount;
-
         totalDeposit -= amount;
-        totalWithdraw += amount;
 
         UnstakeInfo[] storage infos = unstakeInfo[msg.sender];
-        infos.push(UnstakeInfo(block.timestamp, amount, true));
-
+        infos.push(UnstakeInfo(block.timestamp, amount, false, true));
         emit Unstaked(msg.sender, amount, info.depositAmount);
+    }
+
+    function withdrawById(uint256 id) public nonReentrant{
+        require(id < unstakeInfo[msg.sender].length, "invalid unstake id");
+        UnstakeInfo storage info = unstakeInfo[msg.sender][id];
+        require(info.isUsed, "no unstake record");
+        require((block.timestamp - info.timestamp) >= 21 * 86400, "not released within 21 days"); 
+        Address.sendValue(payable(msg.sender), info.amount);
+        info.isClaimed = true;
+        totalWithdraw += info.amount;
+        uint256 leftAmount = getDynamicPrincipal(msg.sender);
+        emit Withdraw(msg.sender, info.amount, leftAmount);
     }
 }

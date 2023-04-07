@@ -2,55 +2,18 @@
 
 pragma solidity >= 0.8.0;
 
+import "./StakingStorage.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 
 // main node -> light node -> user
-contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
-    struct MainNodeInfo {
-        uint256 stakeAmount;
-        uint256 rewardAmount;
-        uint256 totalStakeAmount;
-        uint256 totalRewardAmount;
-        uint256 totalLightNodes;
-        uint256 rate;            // rate for APR base is 10000
-        uint256 commissionRate;  // commission rate of main node 
-        bool isStopped;
-        bool isUsed;
-    }
+contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
 
-    struct LightNodeInfo {
-        uint256 mainNodeId;
-        uint256 stakeAmount;
-        uint256 rewardAmount;
-        uint256 totalStakeAmount;
-        uint256 totalRewardAmount;
-        uint256 totalUsers;
-        uint256 registerTime;
-        uint256 commissionRate;
-        address ownerAddress;
-        bool isStopped;
-        bool isUsed;
-    }
-
-    struct StakeInfo {
-        uint256 lightNodeId;
-        uint256 updateTime;
-        uint256 stakeAmount;
-        uint256 rewardAmount;
-        uint256 totalStakeAmount;
-        uint256 totalRewardAmount;
-        uint256 unstakeCount;
-        address referee; 
-        bool isUsed;
-    }
-
-    event NewUser(address user, uint256 lightId, uint256 mainId, address referee, uint256 timestamp);
+    event NewUser(address indexed user, uint256 lightId, uint256 mainId, address referee, uint256 timestamp);
     event Staked( address indexed account, uint256 indexed lightNodeId, uint256 indexed mainNodeId, uint256 amount, uint256 rate, uint256 timestamp);
     event Unstaked(address indexed account, uint256 indexed lightNodeId, uint256 indexed mainNodeId, uint256 amount, uint256 leftAmount, uint256 timestamp);
+    event Withdraw(address indexed user, uint256 amount, uint256 leftAmount);
     event RewardClaimed(address indexed account, uint256 indexed lightNodeId, uint256 indexed mainNodeId, uint256 amount, uint256 timestamp);
     event NewStakeRate(uint256 nodeId, uint256 oldRate, uint256 newRate);
     event NewMainNodeCommission(uint256 nodeId, uint256 oldRate, uint256 rate);
@@ -60,60 +23,32 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     event ReferRewardSet(uint256 batchNo);
     event ReStaked(address indexed account, uint256 indexed lightNodeId, uint256 indexed mainNodeId, uint256 reward, uint256 timestamp);
 
-    mapping (uint256 => MainNodeInfo) public mainNodeInfo;  // node id -> info
-    mapping (uint256 => LightNodeInfo) public lightNodeInfo; // node id -> info
-    mapping (address => uint256) public ownerLightNodeId; // owner address -> node id
-    mapping (address => StakeInfo) public stakeInfo; // address -> stake info
-    mapping (address => uint256) public referRewards; // address -> refer award 
-    mapping (address => bool) public lightNodeBlacklist; // address -> refer award 
-    mapping (uint256 => mapping(address => uint256)) public dynamicReward; // date -> (address -> award) 
-    mapping (address => uint256) public firstDynamicRecord; // address -> date 
-    mapping (address => uint256) public dynamicRewardClaimed; // address -> amount claimed
-
-    uint256 constant BASE = 10000;  // APR ratio base
-    uint256 constant SECONDS_PER_DAY = 24 * 60 * 60;  // seconds per day
-    uint256 constant SECONDS_PER_YEAR = 365 * 24 * 60 * 60;  // seconds per year 
-    uint256 constant DEFAULT_RATE = 10000;  // default APR rate 
-    uint256 public currentTotalStaked;  // current total staked in the contract
-    uint256 public currentTotalReward;  // current total reward available for claiming
-    uint256 public totalStaked;     // total staked amount (including unstaked)
-    uint256 public totalReward;     // total reward generated (inlcuding claimed)
-    uint256 public totalUnstaked;   // total unstaked 
-    uint256 public totalRewardClaimed; // total reward claimed
-    uint256 public stopLimit; // stop limit of light node 
-
-    uint256 public mainNodeCap;     // staking cap for every main node  
-    uint256 public currentMainNodeIndex; // start from 1
-    uint256 public currentLightNodeIndex; // start from 1
-    uint256 public initTime; // init time for staking 
-
-    /// @notice initialize only run once
-    function initialize () public initializer {
-      __Ownable_init();
-      __UUPSUpgradeable_init();
-      currentMainNodeIndex = 1;
-      currentLightNodeIndex = 1;
-      stopLimit = 1000;
-      mainNodeCap = 4_000_000 * 1 ether;
-      initTime = 1680278400; // since April 1st
+    constructor () {
+        admin = msg.sender;
     }
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() initializer {}
+    function upgrade(address newImplementation) external {
+        require(msg.sender == admin, "only admin authorized");
+        implementation = newImplementation;
+    }
 
-    receive() external payable {}
-
-    function _authorizeUpgrade(address) internal override onlyOwner {}
-
-    function _setInitTime(uint256 timestamp) external onlyOwner {
+    function _setInitTime(uint256 timestamp) external {
+        require(msg.sender == admin, "only admin authorized");
         initTime = timestamp;
     }
 
-    function _setStopLimit(uint256 limit) external onlyOwner {
+    function _setStopLimit(uint256 limit) external  {
+        require(msg.sender == admin, "only admin authorized");
         stopLimit = limit;
     }
 
-    function _setMainNodeStakeRate(uint256 id, uint256 ratio) external onlyOwner {
+    function _setMainNodeStakeCapacity(uint256 cap) external  {
+        require(msg.sender == admin, "only admin authorized");
+        mainNodeCap = cap;
+    }
+
+    function _setMainNodeStakeRate(uint256 id, uint256 ratio) external  {
+        require(msg.sender == admin, "only admin authorized");
         MainNodeInfo storage node = mainNodeInfo[id];
         require(node.isUsed, "main node does not exists.");
         uint256 oldRate = node.rate;
@@ -121,7 +56,8 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         emit NewStakeRate(id, oldRate, node.rate);
     }
 
-    function _setMainNodeCommissionRate(uint256 id, uint256 rate) external onlyOwner {
+    function _setMainNodeCommissionRate(uint256 id, uint256 rate) external  {
+        require(msg.sender == admin, "only admin authorized");
         MainNodeInfo storage node = mainNodeInfo[id];
         require(node.isUsed, "main node does not exists.");
         uint256 oldRate = node.commissionRate;
@@ -129,7 +65,9 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         emit NewMainNodeCommission(id, oldRate, rate);
     }
 
-    function _setLightNodeCommissionRate(uint256 id, uint256 rate) external onlyOwner {
+    function _setLightNodeCommissionRate(uint256 id, uint256 rate) external {
+        require(rate <= 500, "ratio must be lower than 5%");
+        require(ownerLightNodeId[msg.sender] == id, "only owner of light node authorized");
         LightNodeInfo storage node = lightNodeInfo[id];
         require(node.isUsed, "light node does not exists.");
         uint256 oldRate = node.commissionRate;
@@ -137,7 +75,7 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         emit NewLightNodeCommission(id, oldRate, rate);
     }
 
-    function _initMainNode(uint256 num) external onlyOwner returns (uint256[] memory) {
+    function _initMainNode(uint256 num) external  returns (uint256[] memory) {
         uint256[] memory ids = new uint256[](num);
         for(uint256 i = currentMainNodeIndex; i < currentMainNodeIndex + num; i++)
         {
@@ -148,6 +86,20 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         }
         currentMainNodeIndex += num;
         return ids;
+    }
+    // Emergency function: In case any ETH get stuck in the contract unintentionally
+    // Only owner can retrieve the asset balance to a recipient address
+    function rescueETH(address recipient)  external {
+        require(msg.sender == admin, "only admin authorized");
+        Address.sendValue(payable(recipient), address(this).balance);
+    }
+
+    // Emergency function: In case any ERC20 tokens get stuck in the contract unintentionally
+    // Only owner can retrieve the asset balance to a recipient address
+    function rescueERC20(address asset, address recipient)  external { 
+        require(msg.sender == admin, "only admin authorized");
+        (bool success, ) = asset.call(abi.encodeWithSelector(0xa9059cbb, recipient, IERC20(asset).balanceOf(address(this))));
+        require(success, "rescue failed.");
     }
 
     // update nodes info related
@@ -171,7 +123,8 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         totalReward += amount;
     }
 
-    function _setReferReward(uint256 batchNo, address[] calldata accounts, uint256[] calldata values) external onlyOwner {
+    function _setReferReward(uint256 batchNo, address[] calldata accounts, uint256[] calldata values) external  {
+        require(msg.sender == admin, "only admin authorized");
         require(batchNo != 0, "batchNo cannot be empty");
         require(accounts.length == values.length, "length not match");
         
@@ -180,12 +133,23 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         {
             if(firstDynamicRecord[accounts[i]] == 0)
                 firstDynamicRecord[accounts[i]] = key;
-            dynamicReward[key][accounts[i]] = values[i];
+            dynamicReward[key][accounts[i]] += values[i];
             updateNodesInfo(accounts[i], values[i]);
         }
         emit ReferRewardSet(batchNo);
     }
 
+    // get claimable dynamic principal 
+    function getDynamicPrincipal(address account) public view returns(uint256) {
+        uint256 leftAmount = 0;
+        for(uint i=0; i<unstakeInfo[account].length; i++)
+        {
+            UnstakeInfo memory info = unstakeInfo[account][i];
+            if(info.isClaimed == false) 
+                leftAmount += info.amount;
+        }
+        return leftAmount;
+    }
     // get claimable dynamic reward
     function getDynamicReward(address account) public view returns(uint256) {
         uint256 day = block.timestamp / SECONDS_PER_DAY;
@@ -194,18 +158,26 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
             return 0;
 
         uint256 totalDynamicReward = 0;
-        for(uint i = 0; i < 365; i++)
+        for(uint i = 0; i < 100; i++)
         {
             uint256 key = day - i;
             if(key < firstDate)
                 break;
-            totalDynamicReward += dynamicReward[key][account]*(i+1)/365;
+            totalDynamicReward += dynamicReward[key][account]*(i+1)/100;
+        }
+        uint256 k = day - 100;
+        while(k >= firstDate)
+        {
+            totalDynamicReward += dynamicReward[k][account];
+            k--;
         }
         return totalDynamicReward;
     }
 
-    function registerLightNode(uint256 id, address account, address referee) external onlyOwner returns(uint256) {
+    function registerLightNode(uint256 id, address account, address referee, uint256 rate) external  returns(uint256) {
+        require(msg.sender == admin, "only admin authorized");
         require(!lightNodeBlacklist[account], "account has a lightnode already");
+        require(rate <= 500, "ratio must be lower than 500");
         MainNodeInfo storage node = mainNodeInfo[id];
         require(node.isUsed, "main node not exist");
 
@@ -215,7 +187,7 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
             require(refereeUser.isUsed, "referee not exist");
         }
         node.totalLightNodes += 1;
-        LightNodeInfo memory lightNode = LightNodeInfo(id, 0, 0, 0, 0, 0, block.timestamp, 500, account, false, true);
+        LightNodeInfo memory lightNode = LightNodeInfo(id, 0, 0, 0, 0, 0, block.timestamp, rate, account, false, true);
         uint256 lightNodeId = currentLightNodeIndex;
         lightNodeInfo[lightNodeId] = lightNode;
         ownerLightNodeId[account] = lightNodeId;
@@ -239,6 +211,7 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         stakeInfo[account] = newInfo;
         LightNodeInfo storage lnode = lightNodeInfo[lightNodeId];
         lnode.totalUsers += 1;
+        lightNodeBlacklist[account] = true;
         emit NewUser(account, lightNodeId, id, referee, block.timestamp);
 
         return lightNodeId;
@@ -251,6 +224,35 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
             return info.rewardAmount - dynamicRewardClaimed[account];
         }else
             return 0;
+    }
+
+    function unstakeRecordSize(address account) public view returns (uint256) {
+        UnstakeInfo[] memory infos = unstakeInfo[account];
+        return infos.length;
+    }
+
+    function unstakeRecords(address account) public view returns (UnstakeInfo[] memory) {
+        UnstakeInfo[] memory infos = unstakeInfo[account];
+        return infos;
+    }
+
+    function totalUnstakedAmount(address account) public view returns (uint256) {
+        UnstakeInfo[] memory infos = unstakeInfo[account];
+        uint256 amount = 0;
+        for(uint i=0; i<infos.length; i++)
+            amount += infos[i].amount;
+        return amount;
+    }
+
+    function totalUnstakeReleasedAmount(address account) public view returns (uint256) {
+        UnstakeInfo[] memory infos = unstakeInfo[account];
+        uint256 amount = 0;
+        for(uint i=0; i<infos.length; i++)
+        {
+            if((block.timestamp - infos[i].timestamp) > 21 * 86400)
+                amount += infos[i].amount;
+        }
+        return amount;
     }
 
     // register a new user 
@@ -295,6 +297,8 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     // stake from light nodes
     function stake() public payable {
 
+        require(block.timestamp >= initTime, "staking not started");
+
         StakeInfo storage info = stakeInfo[msg.sender];
         require(info.isUsed, "user not registered");
         require(info.lightNodeId != 0, "light node id not match");
@@ -313,6 +317,7 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         
         MainNodeInfo storage mainNode = mainNodeInfo[lightNode.mainNodeId];
         require(mainNode.isUsed && !mainNode.isStopped, "main node stopped");
+        require(msg.value + mainNode.totalStakeAmount <= mainNodeCap, "exceeds main node capacity");
         mainNode.stakeAmount += msg.value;
         mainNode.totalStakeAmount += msg.value;
         currentTotalStaked += msg.value;
@@ -322,7 +327,9 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     }
 
     // restake
-    function restake() public payable {
+    function restake() public {
+
+        require(block.timestamp >= initTime, "staking not started");
 
         StakeInfo storage info = stakeInfo[msg.sender];
         require(info.isUsed, "no stake record");
@@ -332,27 +339,20 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
 
         info.stakeAmount += amount;
         info.totalStakeAmount += amount;
-        info.rewardAmount = 0;
-        info.totalRewardAmount += amount;
         info.updateTime = block.timestamp;
 
         LightNodeInfo storage lightNode = lightNodeInfo[info.lightNodeId];
         require(lightNode.isUsed && !lightNode.isStopped, "light node stopped");
         lightNode.stakeAmount += amount;
-        lightNode.rewardAmount += amount;
         lightNode.totalStakeAmount += amount;
-        lightNode.totalRewardAmount += amount;
         uint256 mainNodeId = lightNode.mainNodeId;
         
         MainNodeInfo storage mainNode = mainNodeInfo[lightNode.mainNodeId];
         require(mainNode.isUsed && !mainNode.isStopped, "main node stopped");
         mainNode.stakeAmount += amount;
-        mainNode.rewardAmount += amount;
         mainNode.totalStakeAmount += amount;
         mainNode.totalRewardAmount += amount;
 
-        currentTotalReward += amount;
-        totalReward += amount;
         currentTotalStaked += amount;
         totalStaked += amount;
 
@@ -360,6 +360,7 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     }
 
     function claimReward(uint256 amount) public nonReentrant {
+        require(block.timestamp >= initTime, "staking not started");
         require(amount > 0, "invalid amount");
         StakeInfo storage info = stakeInfo[msg.sender];
         require(info.isUsed, "no stake reward");
@@ -384,6 +385,7 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     }
 
     function unstake(uint256 amount) public nonReentrant{
+        require(block.timestamp >= initTime, "staking not started");
         StakeInfo storage info = stakeInfo[msg.sender];
         require(info.isUsed, "no stake record");
         require(amount > 0 && info.stakeAmount >= amount, "no enough tokens to withdraw");
@@ -395,7 +397,7 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
 
         LightNodeInfo storage lightNode = lightNodeInfo[info.lightNodeId];
         lightNode.stakeAmount -= amount;
-        if(info.unstakeCount >= 3)
+        if(ownerLightNodeId[msg.sender] == info.lightNodeId && info.unstakeCount >= 3)
             lightNode.isStopped = true;
 
         MainNodeInfo storage mainNode = mainNodeInfo[lightNode.mainNodeId];
@@ -403,8 +405,20 @@ contract MetaStaking is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
 
         currentTotalStaked -= amount;
         totalUnstaked += amount;
-        Address.sendValue(payable(msg.sender), amount);
+        unstakeInfo[msg.sender].push(UnstakeInfo(block.timestamp, amount, false, true));
 
         emit Unstaked(msg.sender, info.lightNodeId, lightNode.mainNodeId, amount, info.stakeAmount, block.timestamp);
+    }
+
+    function withdrawById(uint256 id) public nonReentrant{
+        require(block.timestamp >= initTime, "staking not started");
+        require(id < unstakeInfo[msg.sender].length, "invalid unstake id");
+        UnstakeInfo storage info = unstakeInfo[msg.sender][id];
+        require(info.isUsed, "no unstake record");
+        require((block.timestamp - info.timestamp) >= 21 * 86400, "not released within 21 days"); 
+        Address.sendValue(payable(msg.sender), info.amount);
+        info.isClaimed = true;
+        uint256 leftAmount = getDynamicPrincipal(msg.sender);
+        emit Withdraw(msg.sender, info.amount, leftAmount);
     }
 }
