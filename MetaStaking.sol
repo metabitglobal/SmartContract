@@ -88,20 +88,6 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
         currentMainNodeIndex += num;
         return ids;
     }
-    // Emergency function: In case any ETH get stuck in the contract unintentionally
-    // Only owner can retrieve the asset balance to a recipient address
-    function rescueETH(address recipient)  external {
-        require(msg.sender == admin, "only admin authorized");
-        Address.sendValue(payable(recipient), address(this).balance);
-    }
-
-    // Emergency function: In case any ERC20 tokens get stuck in the contract unintentionally
-    // Only owner can retrieve the asset balance to a recipient address
-    function rescueERC20(address asset, address recipient)  external { 
-        require(msg.sender == admin, "only admin authorized");
-        (bool success, ) = asset.call(abi.encodeWithSelector(0xa9059cbb, recipient, IERC20(asset).balanceOf(address(this))));
-        require(success, "rescue failed.");
-    }
 
     // update nodes info related
     function updateNodesInfo(address account, uint256 amount) internal {
