@@ -222,7 +222,7 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
         StakeInfo memory info = stakeInfo[account];
         if(info.isUsed)
         {
-            return info.rewardAmount - dynamicRewardClaimed[account];
+            return info.totalRewardAmount - dynamicRewardClaimed[account];
         }else
             return 0;
     }
@@ -338,12 +338,14 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
         uint256 amount = dReward - dynamicRewardClaimed[msg.sender];
         dynamicRewardClaimed[msg.sender] = dReward;
 
+        info.rewardAmount -= amount;
         info.stakeAmount += amount;
         info.totalStakeAmount += amount;
         info.updateTime = block.timestamp;
 
         LightNodeInfo storage lightNode = lightNodeInfo[info.lightNodeId];
         require(lightNode.isUsed && !lightNode.isStopped, "light node stopped");
+        lightNode.rewardAmount -= amount;
         lightNode.stakeAmount += amount;
         lightNode.totalStakeAmount += amount;
         uint256 mainNodeId = lightNode.mainNodeId;
@@ -351,9 +353,12 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
         MainNodeInfo storage mainNode = mainNodeInfo[lightNode.mainNodeId];
         require(mainNode.isUsed && !mainNode.isStopped, "main node stopped");
         require(amount + mainNode.totalStakeAmount <= mainNodeCap, "exceeds main node capacity");
+        mainNode.rewardAmount -= amount;
         mainNode.stakeAmount += amount;
         mainNode.totalStakeAmount += amount;
 
+        currentTotalReward -= amount;
+        totalRewardClaimed += amount;
         currentTotalStaked += amount;
         totalStaked += amount;
 
@@ -369,6 +374,7 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
         uint256 claimableAmount = getDynamicReward(msg.sender) - dynamicRewardClaimed[msg.sender];
         require(amount <= claimableAmount, "Insufficient rewards");
         dynamicRewardClaimed[msg.sender] += amount;
+        info.rewardAmount -= amount;
         info.updateTime = block.timestamp;
 
         LightNodeInfo storage lightNode = lightNodeInfo[info.lightNodeId];
