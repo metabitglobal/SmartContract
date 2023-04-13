@@ -409,6 +409,7 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
         UnstakeInfo storage info = unstakeInfo[msg.sender][id];
         require(info.isUsed, "no unstake record");
         require((block.timestamp - info.timestamp) >= 21 * 86400, "not released within 21 days"); 
+        require(!info.isClaimed, "record has been claimed");
         Address.sendValue(payable(msg.sender), info.amount);
         info.isClaimed = true;
         uint256 leftAmount = getDynamicPrincipal(msg.sender);

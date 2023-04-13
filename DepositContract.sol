@@ -32,6 +32,16 @@ contract DepositContract is DepositStorage, ReentrancyGuardUpgradeable {
         emit NewDepositRate(oldRate, rate);
     }
 
+    function _setStakeMinAmount(uint256 amount) external {
+        require(msg.sender == admin, "only admin authorized");
+        minStakeAmount = amount;
+    }
+
+    function _setStakeMaxAmount(uint256 amount) external {
+        require(msg.sender == admin, "only admin authorized");
+        maxStakeAmount = amount;
+    }
+
     function earn(address user) public view returns (uint256) {
         DepositInfo memory info = rateinfo[user];
         if(info.isUsed)
@@ -85,7 +95,9 @@ contract DepositContract is DepositStorage, ReentrancyGuardUpgradeable {
             oldDepositAmount = oldInfo.depositAmount;
         }
 
-        require(msg.value >= 10 * 1e18 && (msg.value + oldDepositAmount) <= 999 * 1e18, "should between 10 and 999");
+        require((oldDepositAmount == 0 && msg.value >= minStakeAmount) || 
+                (oldDepositAmount > 0 && (msg.value + oldDepositAmount) <= maxStakeAmount), "should between 10 and 999");
+        
         DepositInfo memory newInfo = DepositInfo(
             msg.sender,
             block.timestamp,
@@ -153,6 +165,7 @@ contract DepositContract is DepositStorage, ReentrancyGuardUpgradeable {
         UnstakeInfo storage info = unstakeInfo[msg.sender][id];
         require(info.isUsed, "no unstake record");
         require((block.timestamp - info.timestamp) >= 21 * 86400, "not released within 21 days"); 
+        require(!info.isClaimed, "record has been claimed");
         Address.sendValue(payable(msg.sender), info.amount);
         info.isClaimed = true;
         totalWithdraw += info.amount;
