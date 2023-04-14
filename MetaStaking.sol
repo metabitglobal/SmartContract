@@ -304,7 +304,7 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
         
         MainNodeInfo storage mainNode = mainNodeInfo[lightNode.mainNodeId];
         require(mainNode.isUsed && !mainNode.isStopped, "main node stopped");
-        require(msg.value + mainNode.totalStakeAmount <= mainNodeCap, "exceeds main node capacity");
+        require(msg.value + mainNode.stakeAmount <= mainNodeCap, "exceeds main node capacity");
         mainNode.stakeAmount += msg.value;
         mainNode.totalStakeAmount += msg.value;
         currentTotalStaked += msg.value;
@@ -338,7 +338,7 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
         
         MainNodeInfo storage mainNode = mainNodeInfo[lightNode.mainNodeId];
         require(mainNode.isUsed && !mainNode.isStopped, "main node stopped");
-        require(amount + mainNode.totalStakeAmount <= mainNodeCap, "exceeds main node capacity");
+        require(amount + mainNode.stakeAmount <= mainNodeCap, "exceeds main node capacity");
         mainNode.rewardAmount -= amount;
         mainNode.stakeAmount += amount;
         mainNode.totalStakeAmount += amount;
