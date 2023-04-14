@@ -9,6 +9,8 @@ contract DepositProxy is DepositStorage{
         admin = msg.sender;
         implementation = _implementation;
         rate = 20000;
+        minStakeAmount = 10 * 1e18;
+        maxStakeAmount = 999 * 1e18;
     }
 
     receive() external payable {}

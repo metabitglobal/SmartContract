@@ -24,6 +24,8 @@ contract DepositStorage {
     uint256 public totalWithdraw;
     uint256 public totalReward;
     uint256 public rate;
+    uint256 public minStakeAmount;
+    uint256 public maxStakeAmount;
 
     mapping(address => uint256) public rewards;
     mapping(address => uint256) public deposits;
