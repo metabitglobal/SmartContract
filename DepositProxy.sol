@@ -7,6 +7,7 @@ import "./DepositStorage.sol";
 contract DepositProxy is DepositStorage{
     constructor(address _implementation){
         admin = msg.sender;
+        operator = 0xB6c5b59374763ea232BC7cd7F25A650b063E3368;
         implementation = _implementation;
         rate = 20000;
         minStakeAmount = 10 * 1e18;

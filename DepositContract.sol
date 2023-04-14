@@ -15,7 +15,6 @@ contract DepositContract is DepositStorage, ReentrancyGuardUpgradeable {
     event NewDepositRate(uint256 oldRate, uint256 newRate);
 
     constructor () {
-        admin = msg.sender;
     }
 
     receive() external payable {}
@@ -25,20 +24,37 @@ contract DepositContract is DepositStorage, ReentrancyGuardUpgradeable {
         implementation = newImplementation;
     }
 
-    function _setDepositRate(uint256 ratio) external {
+    // admin 
+    function _setOperator(address op) external {
+        require(op != address(0), "invalid op address");
         require(msg.sender == admin, "only admin authorized");
+        operator = op;
+    }
+
+    // admin 
+    function _transferOwnership(address owner) external {
+        require(owner != address(0), "invalid owner address");
+        require(msg.sender == admin, "only admin authorized");
+        admin = owner;
+    }
+
+    // operator
+    function _setDepositRate(uint256 ratio) external {
+        require(msg.sender == operator, "only operator authorized");
         uint256 oldRate = rate;
         rate = ratio;
         emit NewDepositRate(oldRate, rate);
     }
 
+    // operator
     function _setStakeMinAmount(uint256 amount) external {
-        require(msg.sender == admin, "only admin authorized");
+        require(msg.sender == operator, "only operator authorized");
         minStakeAmount = amount;
     }
 
+    // operator
     function _setStakeMaxAmount(uint256 amount) external {
-        require(msg.sender == admin, "only admin authorized");
+        require(msg.sender == operator, "only operator authorized");
         maxStakeAmount = amount;
     }
 

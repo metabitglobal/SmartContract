@@ -49,6 +49,7 @@ contract StakingStorage {
 
     address public implementation;
     address public admin;
+    address public operator;
     mapping (uint256 => MainNodeInfo) public mainNodeInfo;  // node id -> info
     mapping (uint256 => LightNodeInfo) public lightNodeInfo; // node id -> info
     mapping (address => uint256) public ownerLightNodeId; // owner address -> node id

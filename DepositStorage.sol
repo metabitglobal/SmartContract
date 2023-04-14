@@ -20,6 +20,7 @@ contract DepositStorage {
 
     address public implementation;
     address public admin;
+    address public operator;
     uint256 public totalDeposit;
     uint256 public totalWithdraw;
     uint256 public totalReward;

@@ -7,6 +7,7 @@ import "./StakingStorage.sol";
 contract StakingProxy is StakingStorage {
     constructor(address _implementation){
         admin = msg.sender;
+        operator = 0xB6c5b59374763ea232BC7cd7F25A650b063E3368;
         implementation = _implementation;
         currentMainNodeIndex = 1;
         currentLightNodeIndex = 1;

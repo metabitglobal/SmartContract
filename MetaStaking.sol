@@ -24,31 +24,49 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
     event ReStaked(address indexed account, uint256 indexed lightNodeId, uint256 indexed mainNodeId, uint256 reward, uint256 timestamp);
 
     constructor () {
-        admin = msg.sender;
     }
 
+    // admin 
     function upgrade(address newImplementation) external {
         require(msg.sender == admin, "only admin authorized");
         implementation = newImplementation;
     }
 
+    // admin 
     function _setInitTime(uint256 timestamp) external {
         require(msg.sender == admin, "only admin authorized");
         initTime = timestamp;
     }
 
-    function _setStopLimit(uint256 limit) external  {
+    // admin 
+    function _setOperator(address op) external {
+        require(op != address(0), "invalid op address");
         require(msg.sender == admin, "only admin authorized");
+        operator = op;
+    }
+
+    // admin 
+    function _transferOwnership(address owner) external {
+        require(owner != address(0), "invalid owner address");
+        require(msg.sender == admin, "only admin authorized");
+        admin = owner;
+    }
+
+    // operator
+    function _setStopLimit(uint256 limit) external  {
+        require(msg.sender == operator, "only operator authorized");
         stopLimit = limit;
     }
 
+    // operator
     function _setMainNodeStakeCapacity(uint256 cap) external  {
-        require(msg.sender == admin, "only admin authorized");
+        require(msg.sender == operator, "only operator authorized");
         mainNodeCap = cap;
     }
 
+    // operator
     function _setMainNodeStakeRate(uint256 id, uint256 ratio) external  {
-        require(msg.sender == admin, "only admin authorized");
+        require(msg.sender == operator, "only operator authorized");
         MainNodeInfo storage node = mainNodeInfo[id];
         require(node.isUsed, "main node does not exists.");
         uint256 oldRate = node.rate;
@@ -56,8 +74,9 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
         emit NewStakeRate(id, oldRate, node.rate);
     }
 
+    // operator
     function _setMainNodeCommissionRate(uint256 id, uint256 rate) external  {
-        require(msg.sender == admin, "only admin authorized");
+        require(msg.sender == operator, "only operator authorized");
         MainNodeInfo storage node = mainNodeInfo[id];
         require(node.isUsed, "main node does not exists.");
         uint256 oldRate = node.commissionRate;
@@ -75,8 +94,9 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
         emit NewLightNodeCommission(id, oldRate, rate);
     }
 
+    // operator
     function _initMainNode(uint256 num) external  returns (uint256[] memory) {
-        require(msg.sender == admin, "only admin authorized");
+        require(msg.sender == operator, "only operator authorized");
         uint256[] memory ids = new uint256[](num);
         for(uint256 i = currentMainNodeIndex; i < currentMainNodeIndex + num; i++)
         {
@@ -110,8 +130,9 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
         totalReward += amount;
     }
 
+    // operator
     function _setReferReward(uint256 batchNo, address[] calldata accounts, uint256[] calldata values) external  {
-        require(msg.sender == admin, "only admin authorized");
+        require(msg.sender == operator, "only operator authorized");
         require(batchNo != 0, "batchNo cannot be empty");
         require(accounts.length == values.length, "length not match");
         
@@ -161,8 +182,9 @@ contract MetaStaking is StakingStorage, ReentrancyGuardUpgradeable {
         return totalDynamicReward;
     }
 
+    // operator
     function registerLightNode(uint256 id, address account, address referee, uint256 rate) external  returns(uint256) {
-        require(msg.sender == admin, "only admin authorized");
+        require(msg.sender == operator, "only operator authorized");
         require(!lightNodeBlacklist[account], "account has a lightnode already");
         require(rate <= 500, "ratio must be lower than 500");
         MainNodeInfo storage node = mainNodeInfo[id];
